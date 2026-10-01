@@ -115,6 +115,30 @@ export interface FuzzResult {
   label: string;
 }
 
+// ------------------------------------------------- 构图辅助：机位建议
+
+export type CompositionSuggestionStatus = 'active' | 'invalidated';
+export type CompositionInvalidatedReason = 'asset_deleted' | 'annotations_replaced';
+
+export interface CompositionSuggestionDto {
+  id: string;
+  assetId: string | null;
+  inspirationId: string | null;
+  status: CompositionSuggestionStatus;
+  ruleCode: string;
+  suggestionKey: string;
+  title: string;
+  detail: string;
+  priority: 'tip' | 'info' | 'warn';
+  basis: { code: string; text: string; values?: Record<string, number | string> }[];
+  actions: { kind: string; label: string; payload?: Record<string, unknown> }[];
+  sourceAnnotationIds: string[];
+  signature: string;
+  invalidatedReason: CompositionInvalidatedReason | null;
+  invalidatedAt: string | null;
+  createdAt: string;
+}
+
 export interface SpotDto {
   id: string;
   placeId: string;

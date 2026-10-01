@@ -35,6 +35,12 @@ import {
 import { toAssetDto, toAnnotationDto, toInspirationDto, toSpotDto } from '../services/serialization.js';
 import type { SerializeContext } from '../services/serialization.js';
 import { ingestAsset, type AssetRow } from '../services/assets.js';
+import {
+  invalidateSuggestionsForAsset,
+  listSuggestionsForAsset,
+  listSuggestionsForInspiration,
+  regenerateSuggestionsForAsset,
+} from '../services/compositionSuggestions.js';
 import { clearFuzzCache, loadSpotRow } from '../services/fuzzing.js';
 import { loadSpotGeom } from '../services/windowEngine.js';
 import { azimuthAt, elevationAt, utcToZonedParts, zonedTimeToUtc } from '@flil/shared';
@@ -344,7 +350,13 @@ inspirationRouter.delete(
   ah(async (req, res) => {
     const ctx = ctxOf(req);
     const row = loadAsset(req.params.id, ctx.libraryId);
-    getDb().prepare('DELETE FROM asset WHERE id = ?').run(row.id);
+    const db = getDb();
+    // 构图辅助失效契约：先在同一事务里把关联机位建议标记为失效（留痕），再删素材
+    const run = db.transaction(() => {
+      invalidateSuggestionsForAsset(db, row.id, 'asset_deleted', nowIso());
+      db.prepare('DELETE FROM asset WHERE id = ?').run(row.id);
+    });
+    run();
     ok(res, { deleted: true });
   }),
 );
@@ -407,6 +419,8 @@ inspirationRouter.put(
     const db = getDb();
     const ts = nowIso();
     const run = db.transaction(() => {
+      // 覆盖重标 = 旧依据不再成立：先把旧建议同步失效（留痕），再写新标注
+      invalidateSuggestionsForAsset(db, row.id, 'annotations_replaced', ts);
       db.prepare('DELETE FROM composition_note WHERE asset_id = ?').run(row.id);
       for (const item of input.items) {
         db.prepare(
@@ -420,6 +434,38 @@ inspirationRouter.put(
       unknown
     >[];
     ok(res, { items: rows.map(toAnnotationDto) });
+  }),
+);
+
+// ------------------------------------------- 构图辅助：机位建议（生成 / 查询）
+
+inspirationRouter.get(
+  '/assets/:id/composition-suggestions',
+  ah(async (req, res) => {
+    const ctx = ctxOf(req);
+    const row = loadAsset(req.params.id, ctx.libraryId);
+    const onlyActive = String(req.query.status ?? 'all') === 'active';
+    ok(res, { items: listSuggestionsForAsset(row.id, onlyActive ? 'active' : 'all') });
+  }),
+);
+
+/** 由光位箭头 / 取景框 / 主体线生成机位建议；每条建议带可复算的依据 */
+inspirationRouter.post(
+  '/assets/:id/composition-suggestions/generate',
+  ah(async (req, res) => {
+    const ctx = ctxOf(req);
+    const row = loadAsset(req.params.id, ctx.libraryId);
+    const result = regenerateSuggestionsForAsset(row);
+    ok(res, { items: result.items, generated: result.generated, signature: result.signature }, 201);
+  }),
+);
+
+inspirationRouter.get(
+  '/inspirations/:id/composition-suggestions',
+  ah(async (req, res) => {
+    const ctx = ctxOf(req);
+    const row = requireInspiration(req.params.id, ctx.libraryId);
+    ok(res, { items: listSuggestionsForInspiration(row.id) });
   }),
 );
 

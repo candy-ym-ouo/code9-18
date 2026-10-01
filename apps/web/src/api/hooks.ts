@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AlbumDto,
   AlbumGapDto,
+  CompositionSuggestionDto,
   InspirationDto,
   PlanDto,
   ReminderDto,
@@ -278,10 +279,32 @@ export function useUploadAssets() {
 }
 
 export function useSaveAnnotations() {
-  const invalidate = useInvalidate(['inspiration']);
+  const invalidate = useInvalidate(['inspiration', 'compositionSuggestions']);
   return useMutation({
     mutationFn: ({ assetId, items }: { assetId: string; items: { kind: string; geometry: Record<string, unknown> }[] }) =>
       put<unknown>(`/assets/${assetId}/annotations`, { items }),
+    onSuccess: invalidate,
+  });
+}
+
+// ----------------------------------------- 构图辅助：机位建议
+
+export function useCompositionSuggestions(inspirationId: string | undefined) {
+  return useQuery({
+    queryKey: ['compositionSuggestions', inspirationId],
+    queryFn: () => get<{ items: CompositionSuggestionDto[] }>(`/inspirations/${inspirationId}/composition-suggestions`),
+    enabled: Boolean(inspirationId),
+  });
+}
+
+export function useGenerateCompositionSuggestions() {
+  const invalidate = useInvalidate(['compositionSuggestions']);
+  return useMutation({
+    mutationFn: (assetId: string) =>
+      post<{ items: CompositionSuggestionDto[]; generated: number; signature: string }>(
+        `/assets/${assetId}/composition-suggestions/generate`,
+        {},
+      ),
     onSuccess: invalidate,
   });
 }

@@ -110,6 +110,7 @@ export function exportAll(libraryId: string): Record<string, unknown> {
     'tag',
     'inspiration_tag',
     'composition_note',
+    'composition_suggestion',
     'timing',
     'repro_window',
     'reminder',

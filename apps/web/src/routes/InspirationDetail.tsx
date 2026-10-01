@@ -23,6 +23,8 @@ import type { AnnotationDto, AssetDto, TimingDto } from '@flil/shared';
 import { authedImageUrl, get, post } from '../api/client.js';
 import {
   useBindSpot,
+  useCompositionSuggestions,
+  useGenerateCompositionSuggestions,
   useInspiration,
   useRecomputeWindows,
   useRecomputeSun,
@@ -36,6 +38,7 @@ import { STATUS_META, fmtDateTime, hitRateText } from '../lib/format.js';
 import { useSession } from '../stores/session.js';
 import { AssetStrip } from '../components/AssetStrip.js';
 import { AnnotationEditor, type DraftAnnotation } from '../components/AnnotationEditor.js';
+import { CompositionSuggestions } from '../components/CompositionSuggestions.js';
 import { TimingEditor } from '../components/TimingEditor.js';
 import { WindowList } from '../components/WindowList.js';
 import { TagPicker } from '../components/TagPicker.js';
@@ -49,6 +52,8 @@ export default function InspirationDetail() {
   const { data: spots } = useSpots();
   const uploadAssets = useUploadAssets();
   const saveAnnotations = useSaveAnnotations();
+  const generateSuggestions = useGenerateCompositionSuggestions();
+  const suggestionsQuery = useCompositionSuggestions(id);
   const recomputeSun = useRecomputeSun();
   const recomputeWindows = useRecomputeWindows();
   const bindSpot = useBindSpot();
@@ -103,8 +108,15 @@ export default function InspirationDetail() {
     if (!annotationTarget) return;
     try {
       await saveAnnotations.mutateAsync({ assetId: annotationTarget.id, items: draftAnnotations });
-      message.success('标注已保存（坐标已归一化，缩放不影响）');
+      // 覆盖重标后立即按新标注重算机位建议；服务端已同步把旧建议失效
+      const res = await generateSuggestions.mutateAsync(annotationTarget.id);
+      message.success(
+        res.generated > 0
+          ? `标注已保存，并生成 ${res.generated} 条机位建议（坐标已归一化，缩放不影响）`
+          : '标注已保存（坐标已归一化）；当前标注暂无可生成的机位建议',
+      );
       setAnnotationTarget(null);
+      void suggestionsQuery.refetch();
     } catch (err) {
       message.error((err as Error).message);
     }
@@ -330,6 +342,11 @@ export default function InspirationDetail() {
           />
         </Card>
       ) : null}
+
+      <CompositionSuggestions
+        suggestions={suggestionsQuery.data?.items ?? []}
+        assetTitles={Object.fromEntries(item.assets.map((a, i) => [a.id, `素材 #${i + 1}`]))}
+      />
 
       <Collapse
         items={[

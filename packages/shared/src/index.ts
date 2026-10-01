@@ -1,6 +1,7 @@
 export * from './enums.js';
 export * from './types.js';
 export * from './geometry.js';
+export * from './composition.js';
 export * from './geo.js';
 export * from './time.js';
 export * from './palette.js';
