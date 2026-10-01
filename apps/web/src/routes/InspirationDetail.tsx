@@ -36,6 +36,7 @@ import { STATUS_META, fmtDateTime, hitRateText } from '../lib/format.js';
 import { useSession } from '../stores/session.js';
 import { AssetStrip } from '../components/AssetStrip.js';
 import { AnnotationEditor, type DraftAnnotation } from '../components/AnnotationEditor.js';
+import { CompositionAdviceCard } from '../components/CompositionAdviceCard.js';
 import { TimingEditor } from '../components/TimingEditor.js';
 import { WindowList } from '../components/WindowList.js';
 import { TagPicker } from '../components/TagPicker.js';
@@ -356,6 +357,8 @@ export default function InspirationDetail() {
           },
         ]}
       />
+
+      <CompositionAdviceCard inspirationId={item.id} assets={item.assets} />
 
       <Modal
         open={Boolean(annotationTarget)}

@@ -35,6 +35,12 @@ import {
 import { toAssetDto, toAnnotationDto, toInspirationDto, toSpotDto } from '../services/serialization.js';
 import type { SerializeContext } from '../services/serialization.js';
 import { ingestAsset, type AssetRow } from '../services/assets.js';
+import {
+  invalidateAdviceForAsset,
+  listAdviceForAsset,
+  listAdviceForInspiration,
+  recomputeAdviceForAsset,
+} from '../services/compositionAdvice.js';
 import { clearFuzzCache, loadSpotRow } from '../services/fuzzing.js';
 import { loadSpotGeom } from '../services/windowEngine.js';
 import { azimuthAt, elevationAt, utcToZonedParts, zonedTimeToUtc } from '@flil/shared';
@@ -413,6 +419,8 @@ inspirationRouter.put(
           'INSERT INTO composition_note (id, library_id, asset_id, kind, geometry, label, created_at) VALUES (?,?,?,?,?,?,?)',
         ).run(newId(), ctx.libraryId, row.id, item.kind, toJson(item.geometry), item.label ?? null, ts);
       }
+      // 重标后，由旧标注生成的机位建议同步失效（同一事务，保证不落单）
+      invalidateAdviceForAsset(row.id, db);
     });
     run();
     const rows = db.prepare('SELECT * FROM composition_note WHERE asset_id = ?').all(row.id) as Record<
@@ -420,6 +428,36 @@ inspirationRouter.put(
       unknown
     >[];
     ok(res, { items: rows.map(toAnnotationDto) });
+  }),
+);
+
+// --------------------------------------------------------- composition advice
+
+inspirationRouter.get(
+  '/assets/:id/composition-advice',
+  ah(async (req, res) => {
+    const ctx = ctxOf(req);
+    const row = loadAsset(req.params.id, ctx.libraryId);
+    ok(res, { items: listAdviceForAsset(row.id) });
+  }),
+);
+
+/** 由当前标注（箭头/取景框/主体线）全量重算机位建议，覆盖式 */
+inspirationRouter.post(
+  '/assets/:id/composition-advice/recompute',
+  ah(async (req, res) => {
+    const ctx = ctxOf(req);
+    const row = loadAsset(req.params.id, ctx.libraryId);
+    ok(res, { items: recomputeAdviceForAsset(row.id, ctx.libraryId) });
+  }),
+);
+
+inspirationRouter.get(
+  '/inspirations/:id/composition-advice',
+  ah(async (req, res) => {
+    const ctx = ctxOf(req);
+    const row = requireInspiration(req.params.id, ctx.libraryId);
+    ok(res, { items: listAdviceForInspiration(row.id) });
   }),
 );
 

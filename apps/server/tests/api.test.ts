@@ -447,3 +447,97 @@ describe('E10 备份与质量门', () => {
     expect(Object.values(res.body.dirs).every((v) => v === 'ok')).toBe(true);
   });
 });
+
+describe('E11 构图辅助：标注 → 机位建议 → 失效联动', () => {
+  let assetId = '';
+
+  it('上传素材后可保存标注（箭头 + 取景框 + 主体线）', async () => {
+    const sharp = (await import('sharp')).default;
+    const png = await sharp({
+      create: { width: 160, height: 90, channels: 3, background: { r: 40, g: 60, b: 90 } },
+    })
+      .png()
+      .toBuffer();
+    const up = await request(app)
+      .post(`/api/inspirations/${cardId}/assets`)
+      .set('authorization', `Bearer ${token}`)
+      .field('role', 'reference')
+      .attach('files', png, { filename: 'frame.png', contentType: 'image/png' });
+    expect(up.status).toBe(201);
+    assetId = up.body.items[0].assetId;
+    expect(assetId).toBeTruthy();
+
+    const put = await call('put', `/api/assets/${assetId}/annotations`, {
+      items: [
+        {
+          kind: 'light_arrow',
+          geometry: { from: { x: 0.8, y: 0.2 }, to: { x: 0.3, y: 0.6 }, bearingDeg: 250 },
+        },
+        { kind: 'frame', geometry: { rect: { x: 0.55, y: 0.25, w: 0.3, h: 0.5 } } },
+        { kind: 'leading_line', geometry: { points: [{ x: 0.1, y: 0.9 }, { x: 0.5, y: 0.5 }] } },
+      ],
+    });
+    expect(put.status).toBe(200);
+    expect(put.body.items).toHaveLength(3);
+  });
+
+  it('重算后产出机位建议，每条都带依据（可复算的实测值）', async () => {
+    const res = await call('post', `/api/assets/${assetId}/composition-advice/recompute`, {});
+    expect(res.status).toBe(200);
+    const items = res.body.items as {
+      kind: string;
+      summary: string;
+      stale: boolean;
+      reasons: { code: string; text: string }[];
+      basis: { annotationIds: string[]; notes: string[] };
+    }[];
+    expect(items.length).toBeGreaterThanOrEqual(3);
+    const kinds = items.map((i) => i.kind);
+    expect(kinds).toContain('keep_bearing'); // 光位箭头 → 机位朝向
+    expect(kinds).toContain('shift_camera'); // 取景框偏移 / 主体线 → 机位移动
+    for (const item of items) {
+      expect(item.stale).toBe(false);
+      expect(item.reasons.length).toBeGreaterThan(0);
+      expect(item.basis.annotationIds.length).toBeGreaterThan(0);
+      expect(item.basis.notes.length).toBeGreaterThan(0);
+    }
+    // 机位朝向 265° + 光位角 250° = 期望方位角 155°
+    const bearing = items.find((i) => i.kind === 'keep_bearing');
+    expect(bearing!.summary).toContain('265°');
+    expect(bearing!.reasons.some((r) => r.text.includes('155°'))).toBe(true);
+
+    const list = await call('get', `/api/assets/${assetId}/composition-advice`);
+    expect(list.body.items.length).toBe(items.length);
+    const byInsp = await call('get', `/api/inspirations/${cardId}/composition-advice`);
+    expect(byInsp.body.items.length).toBe(items.length);
+  });
+
+  it('素材重标后关联建议同步失效（stale），重算后恢复', async () => {
+    const put = await call('put', `/api/assets/${assetId}/annotations`, {
+      items: [{ kind: 'frame', geometry: { rect: { x: 0.3, y: 0.3, w: 0.4, h: 0.4 } } }],
+    });
+    expect(put.status).toBe(200);
+
+    const list = await call('get', `/api/assets/${assetId}/composition-advice`);
+    expect(list.body.items.length).toBeGreaterThan(0);
+    expect(list.body.items.every((i: { stale: boolean }) => i.stale === true)).toBe(true);
+
+    const re = await call('post', `/api/assets/${assetId}/composition-advice/recompute`, {});
+    expect(re.body.items.every((i: { stale: boolean }) => i.stale === false)).toBe(true);
+    // 只剩一个居中取景框 → 不再有朝向/移动类建议
+    expect(re.body.items).toHaveLength(0);
+  });
+
+  it('素材删除后关联建议级联消失', async () => {
+    await call('put', `/api/assets/${assetId}/annotations`, {
+      items: [{ kind: 'light_arrow', geometry: { from: { x: 0.2, y: 0.2 }, to: { x: 0.8, y: 0.2 }, bearingDeg: 90 } }],
+    });
+    const re = await call('post', `/api/assets/${assetId}/composition-advice/recompute`, {});
+    expect(re.body.items.length).toBeGreaterThan(0);
+
+    const del = await call('delete', `/api/assets/${assetId}`);
+    expect(del.status).toBe(200);
+    const byInsp = await call('get', `/api/inspirations/${cardId}/composition-advice`);
+    expect(byInsp.body.items).toHaveLength(0);
+  });
+});

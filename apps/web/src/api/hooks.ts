@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   AlbumDto,
   AlbumGapDto,
+  CompositionAdviceDto,
   InspirationDto,
   PlanDto,
   ReminderDto,
@@ -86,6 +87,13 @@ export const useSearch = (params: Record<string, string | number | undefined>, e
 
 export const useSpots = () =>
   useQuery({ queryKey: ['spots'], queryFn: () => get<{ items: SpotDto[] }>('/spots') });
+
+export const useCompositionAdvice = (inspirationId: string | undefined) =>
+  useQuery({
+    queryKey: ['compositionAdvice', inspirationId],
+    queryFn: () => get<{ items: CompositionAdviceDto[] }>(`/inspirations/${inspirationId}/composition-advice`),
+    enabled: Boolean(inspirationId),
+  });
 
 export const usePlaces = () =>
   useQuery({
@@ -278,10 +286,19 @@ export function useUploadAssets() {
 }
 
 export function useSaveAnnotations() {
-  const invalidate = useInvalidate(['inspiration']);
+  const invalidate = useInvalidate(['inspiration', 'compositionAdvice']);
   return useMutation({
     mutationFn: ({ assetId, items }: { assetId: string; items: { kind: string; geometry: Record<string, unknown> }[] }) =>
       put<unknown>(`/assets/${assetId}/annotations`, { items }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRecomputeCompositionAdvice() {
+  const invalidate = useInvalidate(['compositionAdvice']);
+  return useMutation({
+    mutationFn: (assetId: string) =>
+      post<{ items: CompositionAdviceDto[] }>(`/assets/${assetId}/composition-advice/recompute`, {}),
     onSuccess: invalidate,
   });
 }

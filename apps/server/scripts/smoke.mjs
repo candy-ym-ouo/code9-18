@@ -350,6 +350,60 @@ async function main() {
   const badTiming = await req('PUT', `/inspirations/${cardId}/timing`, { timeAnchor: 'not_an_anchor' });
   check('非法参数返回 400 而不是 500', badTiming.status === 400 && badTiming.json?.error?.code === 'BAD_REQUEST', JSON.stringify(badTiming.json));
 
+  // 21. 构图辅助：标注 → 机位建议 → 重标失效 → 删除级联
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const form = new FormData();
+  form.append('role', 'reference');
+  form.append('files', new Blob([png], { type: 'image/png' }), 'frame.png');
+  const upRes = await fetch(`${API}/inspirations/${cardId}/assets`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const up = await upRes.json();
+  check('上传素材成功', upRes.status === 201 && Boolean(up.items?.[0]?.assetId), JSON.stringify(up));
+  const assetId = up.items[0].assetId;
+
+  const ann = await req('PUT', `/assets/${assetId}/annotations`, {
+    items: [
+      { kind: 'light_arrow', geometry: { from: { x: 0.8, y: 0.2 }, to: { x: 0.3, y: 0.6 }, bearingDeg: 90 } },
+      { kind: 'frame', geometry: { rect: { x: 0.55, y: 0.25, w: 0.3, h: 0.5 } } },
+      { kind: 'leading_line', geometry: { points: [{ x: 0.1, y: 0.9 }, { x: 0.5, y: 0.5 }] } },
+    ],
+  });
+  check('保存构图标注（箭头+取景框+主体线）', ann.status === 200 && ann.json?.items?.length === 3);
+
+  const rec = await req('POST', `/assets/${assetId}/composition-advice/recompute`, {});
+  check(
+    '由标注生成机位建议',
+    rec.status === 200 && rec.json?.items?.length >= 2 && rec.json.items.some((i) => i.kind === 'keep_bearing'),
+    JSON.stringify(rec.json).slice(0, 300),
+  );
+  check(
+    '每条建议都带可复算依据',
+    rec.json.items.every((i) => i.reasons.length > 0 && i.basis.annotationIds.length > 0 && i.basis.notes.length > 0),
+  );
+  check(
+    '光位箭头换算出期望太阳方位角（265° 机位 + 90° 光位 = 355°）',
+    rec.json.items.some((i) => i.kind === 'keep_bearing' && i.summary.includes('265°') && i.summary.includes('355°')),
+  );
+
+  await req('PUT', `/assets/${assetId}/annotations`, {
+    items: [{ kind: 'frame', geometry: { rect: { x: 0.3, y: 0.3, w: 0.4, h: 0.4 } } }],
+  });
+  const afterRe = await req('GET', `/assets/${assetId}/composition-advice`);
+  check(
+    '素材重标后关联建议同步失效',
+    afterRe.json.items.length > 0 && afterRe.json.items.every((i) => i.stale === true),
+  );
+
+  const del = await req('DELETE', `/assets/${assetId}`);
+  const afterDel = await req('GET', `/inspirations/${cardId}/composition-advice`);
+  check('素材删除后关联建议级联消失', del.status === 200 && afterDel.json.items.length === 0);
+
   process.stdout.write(`\n结果：通过 ${passed} 项，失败 ${failed} 项\n`);
   if (failed) {
     process.stdout.write('失败明细：\n');

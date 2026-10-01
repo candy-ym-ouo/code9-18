@@ -2,6 +2,7 @@ import type {
   AlbumStatus,
   AnnotationKind,
   AssetRole,
+  CompositionAdviceKind,
   FuzzLevel,
   GapStatus,
   HitLevel,
@@ -17,6 +18,7 @@ import type {
   WindowVerdict,
 } from './enums.js';
 import type { PaletteColor } from './palette.js';
+import type { CompositionAdviceBasis, CompositionAdviceReason } from './compositionAdvice.js';
 
 export interface WeatherProfile {
   cloudCoverPct?: { min: number; max: number };
@@ -105,6 +107,20 @@ export interface AnnotationDto {
   kind: AnnotationKind;
   geometry: Record<string, unknown>;
   label: string | null;
+}
+
+export interface CompositionAdviceDto {
+  id: string;
+  assetId: string;
+  inspirationId: string;
+  kind: CompositionAdviceKind;
+  summary: string;
+  reasons: CompositionAdviceReason[];
+  basis: CompositionAdviceBasis;
+  /** 素材被重标后置为 true；素材删除时整条级联删除 */
+  stale: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface FuzzResult {

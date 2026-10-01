@@ -231,6 +231,21 @@ export const ANNOTATION_KIND_LABEL: Record<AnnotationKind, string> = {
   light_arrow: '光位箭头',
 };
 
+export const CompositionAdviceKind = {
+  keepBearing: 'keep_bearing',
+  shiftCamera: 'shift_camera',
+  adjustFraming: 'adjust_framing',
+  checkConflict: 'check_conflict',
+} as const;
+export type CompositionAdviceKind = (typeof CompositionAdviceKind)[keyof typeof CompositionAdviceKind];
+
+export const COMPOSITION_ADVICE_KIND_LABEL: Record<CompositionAdviceKind, string> = {
+  keep_bearing: '机位朝向',
+  shift_camera: '机位移动',
+  adjust_framing: '取景画幅',
+  check_conflict: '标注冲突',
+};
+
 export const TagSource = {
   manual: 'manual',
   bulk: 'bulk',
